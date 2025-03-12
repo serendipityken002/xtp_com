@@ -1,0 +1,163 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+import serial.tools.list_ports
+import serial
+import threading
+import time
+
+app = Flask(__name__)
+CORS(app)  # 允许所有来源的跨域请求
+
+serial_ports = {}
+serial_data = {}
+is_reading = {}
+read_threads = {}
+
+def init_serial(port_name, baudrate=115200):
+    # 检查端口是否存在
+    available_ports = [p.device for p in serial.tools.list_ports.comports()]
+    if port_name not in available_ports:
+        print(f"错误：找不到串口 {port_name}")
+        print(f"可用串口: {available_ports}")
+        return False
+
+    # 如果串口已经打开，先关闭
+    if port_name in serial_ports and serial_ports[port_name].is_open:
+        serial_ports[port_name].close()
+
+    # 创建新的串口连接
+    ser = serial.Serial(
+        port=port_name,
+        baudrate=baudrate,
+        timeout=1
+    )
+    
+    if not ser.is_open:
+        ser.open()
+
+    # 初始化该串口的数据存储
+    serial_ports[port_name] = ser
+    serial_data[port_name] = []
+    is_reading[port_name] = True
+
+    print(f"成功连接到串口 {port_name}, 波特率: {baudrate}")
+    return True
+
+def read_serial(port):
+    """读取指定串口的数据"""
+    while is_reading.get(port, False):
+        # 循环到 is_reading[port] 为 False 时退出
+        if port in serial_ports:
+            try:
+                ser = serial_ports[port]
+                if ser.in_waiting > 0:
+                    # 检查串行端口的接收缓冲区是否有可读的数据 
+                    data = ser.readline().decode('utf-8').strip()
+                    serial_data[port].append(f'\n接收：{data}')
+                    if len(serial_data[port]) > 100:
+                        # 保留最新的100条数据
+                        serial_data[port].pop(0)
+            except Exception as e:
+                print(f"读取错误 ({port}): {e}")
+        time.sleep(0.1)
+
+@app.route('/')
+def index():
+    """
+    返回当前可用串口列表
+    """
+    available_ports = [p.device for p in serial.tools.list_ports.comports()]
+    return {'ports': available_ports}
+
+@app.route('/api/serial/start', methods=['POST'])
+def start_serial():
+    """启动指定串口"""
+    try:
+        port = request.json['port']
+        baudrate = int(request.json.get('baudrate', 115200))
+
+        if init_serial(port, baudrate):
+            # 启动串口线程
+            thread = threading.Thread(target=read_serial, args=(port,))
+            thread.start()
+            read_threads[port] = thread
+
+            return jsonify({
+                'status': 'success',
+                'message': f"串口 {port} 启动成功"
+            })
+        return jsonify({
+            'status': 'error',
+            'message': '串口初始化失败'
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/api/serial/stop', methods=['POST'])
+def stop_serial():
+    """停止指定串口"""
+    try:
+        port = request.json['port']
+        if port in serial_ports:
+            is_reading[port] = False
+            serial_ports[port].close()
+            del serial_ports[port]
+            return jsonify({"status": "success"})
+        return jsonify({
+            'status': 'error',
+            'message': '串口不存在'
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        })
+
+@app.route('/api/serial/send', methods=['POST'])
+def send_data():
+    """向指定串口发送数据"""
+    port = request.json['port']
+    data = request.json['data']
+    print(f"发送数据 ({port}): {data}")
+    if port in serial_ports:
+        try:
+            serial_ports[port].write(data.encode('utf-8'))
+            serial_data[port].append(f"\n发送： {data}")
+            return jsonify({
+                "status": "success",
+                "message": f"发送数据成功: {data}"
+            })
+        except Exception as e:
+            return jsonify({
+                "status": "send_error",
+                "message": str(e)
+            })
+
+@app.route('/api/serial/status', methods=['POST'])
+def get_status():
+    """获取指定串口的状态"""
+    port = request.json['port']
+
+    if port in serial_ports:
+        is_open = port in serial_ports and serial_ports[port].is_open
+
+        return jsonify({
+            "isOpen": is_open,
+            "port": port if is_open else None,
+            "baudrate": serial_ports[port].baudrate if is_open else None,
+            "data": serial_data.get(port, [])
+        })
+
+    return jsonify({
+        "isOpen": False,
+        "port": None,
+        "baudrate": None,
+        "data": []
+    })
+
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=5000, debug=True)
