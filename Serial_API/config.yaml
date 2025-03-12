@@ -1,0 +1,20 @@
+# 服务器配置
+server:
+  host: "127.0.0.1"
+  port: 5000
+  debug: true
+
+# 默认串口配置
+default_serial_config:
+  baudrate: 115200
+  timeout: 1
+
+# # 可选：预定义串口列表及其配置（可选）
+# predefined_serial_ports:
+#   - port_name: "COM3"
+#     baudrate: 9600
+#   - port_name: "/dev/ttyUSB0"
+#     baudrate: 115200
+
+# 数据保留策略
+max_entries: 100

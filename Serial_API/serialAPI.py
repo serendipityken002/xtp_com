@@ -6,15 +6,30 @@ import serial
 import threading
 import time
 
+import yaml
+
+# 加载配置文件
+with open('config.yaml', 'r') as file:
+    config = yaml.safe_load(file)
+
 app = Flask(__name__)
 CORS(app)  # 允许所有来源的跨域请求
+
+# 使用配置
+host = config['server']['host']
+port = config['server']['port']
+debug = config['server']['debug']
+
+baudrate_default = config['default_serial_config']['baudrate']
+timeout_default = config['default_serial_config']['timeout']
+max_length = config['max_entries']
 
 serial_ports = {}
 serial_data = {}
 is_reading = {}
 read_threads = {}
 
-def init_serial(port_name, baudrate=115200):
+def init_serial(port_name, baudrate=baudrate_default, timeout=timeout_default):
     # 检查端口是否存在
     available_ports = [p.device for p in serial.tools.list_ports.comports()]
     if port_name not in available_ports:
@@ -30,7 +45,7 @@ def init_serial(port_name, baudrate=115200):
     ser = serial.Serial(
         port=port_name,
         baudrate=baudrate,
-        timeout=1
+        timeout=timeout
     )
     
     if not ser.is_open:
@@ -55,8 +70,8 @@ def read_serial(port):
                     # 检查串行端口的接收缓冲区是否有可读的数据 
                     data = ser.readline().decode('utf-8').strip()
                     serial_data[port].append(f'\n接收：{data}')
-                    if len(serial_data[port]) > 100:
-                        # 保留最新的100条数据
+                    if len(serial_data[port]) > max_length:
+                        # 保留最新的数据
                         serial_data[port].pop(0)
             except Exception as e:
                 print(f"读取错误 ({port}): {e}")
@@ -75,7 +90,7 @@ def start_serial():
     """启动指定串口"""
     try:
         port = request.json['port']
-        baudrate = int(request.json.get('baudrate', 115200))
+        baudrate = int(request.json.get('baudrate', baudrate_default))
 
         if init_serial(port, baudrate):
             # 启动串口线程
@@ -160,4 +175,4 @@ def get_status():
     })
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    app.run(host=host, port=port, debug=debug)
