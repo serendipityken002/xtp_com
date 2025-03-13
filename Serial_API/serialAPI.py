@@ -7,9 +7,11 @@ import threading
 import time
 
 import yaml
+import os
 
 # 加载配置文件
-with open('config.yaml', 'r') as file:
+config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+with open(config_path, 'r', encoding='utf-8') as file:
     config = yaml.safe_load(file)
 
 app = Flask(__name__)
