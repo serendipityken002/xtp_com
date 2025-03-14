@@ -9,12 +9,23 @@ default_serial_config:
   baudrate: 115200
   timeout: 1
 
-# # 可选：预定义串口列表及其配置（可选）
-# predefined_serial_ports:
-#   - port_name: "COM3"
-#     baudrate: 9600
-#   - port_name: "/dev/ttyUSB0"
-#     baudrate: 115200
-
 # 数据保留策略
 max_entries: 100
+
+# Modbus配置
+modbus:
+  # 响应超时时间（秒）
+  response_timeout: 1.0
+
+  # 数据库文件路径（相对于应用根目录）
+  database_path: "data/modbus_frames.db"
+
+  # 默认从站地址
+  default_slave_address: 1
+
+  # 帧校验设置
+  frame_validation:
+    # 是否验证CRC
+    validate_crc: true
+    # 最小帧长度（字节）
+    min_frame_length: 4

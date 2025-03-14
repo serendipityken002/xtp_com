@@ -1,21 +1,19 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-
-import serial.tools.list_ports
 import serial
+import serial.tools.list_ports
+
+from flask import Blueprint, request, jsonify
+
+import os
+import yaml
 import threading
 import time
 
-import yaml
-import os
+test_bp = Blueprint('test', __name__)
 
 # 加载配置文件
-config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yaml')
 with open(config_path, 'r', encoding='utf-8') as file:
     config = yaml.safe_load(file)
-
-app = Flask(__name__)
-CORS(app)  # 允许所有来源的跨域请求
 
 # 使用配置
 host = config['server']['host']
@@ -79,7 +77,7 @@ def read_serial(port):
                 print(f"读取错误 ({port}): {e}")
         time.sleep(0.1)
 
-@app.route('/')
+@test_bp.route('/')
 def index():
     """
     返回当前可用串口列表
@@ -87,7 +85,13 @@ def index():
     available_ports = [p.device for p in serial.tools.list_ports.comports()]
     return {'ports': available_ports}
 
-@app.route('/api/serial/start', methods=['POST'])
+@test_bp.route('/ports', methods=['GET'])
+def get_available_ports():
+    """获取可用的串口列表"""
+    available_ports = [p.device for p in serial.tools.list_ports.comports()]
+    return jsonify({'ports': available_ports})
+
+@test_bp.route('/start', methods=['POST'])
 def start_serial():
     """启动指定串口"""
     try:
@@ -114,7 +118,7 @@ def start_serial():
             'message': str(e)
         })
 
-@app.route('/api/serial/stop', methods=['POST'])
+@test_bp.route('/stop', methods=['POST'])
 def stop_serial():
     """停止指定串口"""
     try:
@@ -134,7 +138,7 @@ def stop_serial():
             "message": str(e)
         })
 
-@app.route('/api/serial/send', methods=['POST'])
+@test_bp.route('/send', methods=['POST'])
 def send_data():
     """向指定串口发送数据"""
     port = request.json['port']
@@ -154,7 +158,7 @@ def send_data():
                 "message": str(e)
             })
 
-@app.route('/api/serial/status', methods=['POST'])
+@test_bp.route('/status', methods=['POST'])
 def get_status():
     """获取指定串口的状态"""
     port = request.json['port']
@@ -175,6 +179,3 @@ def get_status():
         "baudrate": None,
         "data": []
     })
-
-if __name__ == '__main__':
-    app.run(host=host, port=port, debug=debug)
