@@ -6,26 +6,14 @@ server:
 
 # 默认串口配置
 default_serial_config:
-  baudrate: 115200
+  port_name: 'COM10'
+  baudrate: 9600
   timeout: 1
-
-# 数据保留策略
-max_entries: 100
 
 # Modbus配置
 modbus:
-  # 响应超时时间（秒）
-  response_timeout: 1.0
+  response_timeout: 1 # 响应超时时间（秒）
+  retries: 3 # 重试次数
 
-  # 数据库文件路径（相对于应用根目录）
-  database_path: "data/modbus_frames.db"
-
-  # 默认从站地址
-  default_slave_address: 1
-
-  # 帧校验设置
-  frame_validation:
-    # 是否验证CRC
-    validate_crc: true
-    # 最小帧长度（字节）
-    min_frame_length: 4
+max_entries: 100 # 数据保留策略
+max_workers: 10 # 最大处理请求数量
