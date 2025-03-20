@@ -20,5 +20,14 @@ logging:
   filename: 'app.log'
   filemode: 'w'
 
+# TCP服务器配置
+tcp_server:
+  host: 127.0.0.1     # 服务器地址，使用127.0.0.1表示仅本机访问，0.0.0.0表示允许所有地址访问
+  # host: 0.0.0.0     # 服务器地址，使用127.0.0.1表示仅本机访问，0.0.0.0表示允许所有地址访问
+  port: 8880          # 服务器端口
+  max_connections: 5  # 最大连接数
+  buffer_size: 4096   # 缓冲区大小
+  max_bytes_per_request: 128  # 每次接收和发送的最大字节数量
+
 max_entries: 1024 # 收发数据队列最大长度
 max_workers: 10 # 最大处理请求数量

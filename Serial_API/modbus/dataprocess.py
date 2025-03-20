@@ -2,6 +2,7 @@ import logging
 from serial_serve import _receive_queue, calculate_crc, _send_queue
 import time
 import threading
+from queue import Empty
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -44,6 +45,31 @@ def process_data():
             logger.info(f"解析到的数据: {response}")
         else:
             time.sleep(0.5)
+
+def process_data(number_of_items):
+    """处理指定个数的数据"""
+    processed_count = 0
+    total_response = None
+    
+    while processed_count < number_of_items:
+        try:
+            data = _receive_queue.dequeue()  # 尝试从队列中获取数据，设置超时避免无限等待
+            if data:
+                response = parse_response(data)
+                logger.info(f"解析到的数据: {response}")
+                total_response += response
+                processed_count += 1  # 只有当成功处理了数据时才增加计数
+        except Empty:
+            # 如果在0.5秒内没有获取到数据，则继续循环尝试直到处理完指定数量的数据
+            if _receive_queue.empty() and processed_count >= _receive_queue.length():
+                logger.warning("数据帧全部取出")
+                break
+            continue
+    return total_response
+
+def return_data_num():
+    """返回数据帧个数"""
+    return _receive_queue.length()
 
 def send_data(slave_adress, function_code, start_address, quantity):
     """发送数据"""
