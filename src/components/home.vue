@@ -60,30 +60,40 @@ const requests = ref([
 ])
 
 const auto_receive = async () => { 
-    try {
-        const response = await axios.post('http://127.0.0.1:5000/api/modbus/send', { 
-            'port_name': port_name, 
-            'requests': requests.value 
-        });
-
-        const serverData = response.data.results;
-
-        // 根据slave_address匹配并更新cabinets
-        serverData.forEach(serverItem => {
-            const cabinetIndex = serverItem.slave_address - 1; // 假设slave_address与cabinets索引对应
-            if (cabinetIndex >= 0 && cabinetIndex < cabinets.value.length) {
-                cabinets.value[cabinetIndex].masterSwitch = serverItem.data[0];
-                cabinets.value[cabinetIndex].lightSwitch = serverItem.data[1];
-                cabinets.value[cabinetIndex].fanSpeed = serverItem.data[2];
-                cabinets.value[cabinetIndex].roomTemperature = serverItem.data[3];
-            }
-        });
-
-        console.log(cabinets.value);
-    } catch (error) {
-        console.error("There was an error sending the request!", error);
-    }
+    const response = await axios.post('http://127.0.0.1:5000/send_data',     {
+        "slave_address": 1,
+        "function_code": 3,
+        "start_address": 2,
+        "quantity": 4
+    });
+    console.log(response.data);
 }
+
+// const auto_receive = async () => { 
+//     try {
+//         const response = await axios.post('http://127.0.0.1:5000/api/modbus/send', { 
+//             'port_name': port_name, 
+//             'requests': requests.value 
+//         });
+
+//         const serverData = response.data.results;
+
+//         // 根据slave_address匹配并更新cabinets
+//         serverData.forEach(serverItem => {
+//             const cabinetIndex = serverItem.slave_address - 1; // 假设slave_address与cabinets索引对应
+//             if (cabinetIndex >= 0 && cabinetIndex < cabinets.value.length) {
+//                 cabinets.value[cabinetIndex].masterSwitch = serverItem.data[0];
+//                 cabinets.value[cabinetIndex].lightSwitch = serverItem.data[1];
+//                 cabinets.value[cabinetIndex].fanSpeed = serverItem.data[2];
+//                 cabinets.value[cabinetIndex].roomTemperature = serverItem.data[3];
+//             }
+//         });
+
+//         console.log(cabinets.value);
+//     } catch (error) {
+//         console.error("There was an error sending the request!", error);
+//     }
+// }
 // 每三秒秒接收一次数据
 // setInterval(auto_receive(), 3000)
 

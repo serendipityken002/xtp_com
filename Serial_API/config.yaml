@@ -15,5 +15,10 @@ modbus:
   response_timeout: 1 # 响应超时时间（秒）
   retries: 3 # 重试次数
 
-max_entries: 100 # 数据保留策略
+# 日志配置
+logging:
+  filename: 'app.log'
+  filemode: 'w'
+
+max_entries: 1024 # 收发数据队列最大长度
 max_workers: 10 # 最大处理请求数量
