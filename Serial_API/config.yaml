@@ -15,11 +15,6 @@ modbus:
   response_timeout: 1 # 响应超时时间（秒）
   retries: 3 # 重试次数
 
-# 日志配置
-logging:
-  filename: 'app.log'
-  filemode: 'w'
-
 # TCP服务器配置
 tcp_server:
   host: 127.0.0.1     # 服务器地址，使用127.0.0.1表示仅本机访问，0.0.0.0表示允许所有地址访问

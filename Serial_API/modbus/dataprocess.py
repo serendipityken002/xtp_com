@@ -1,78 +1,65 @@
 import logging
-from serial_serve import _receive_queue, calculate_crc, _send_queue
-import time
-import threading
-from queue import Empty
+from serial_serve import serial_manager
+import os
+import yaml
+import sys
 
-# 配置日志
-logger = logging.getLogger(__name__)
+# 修改logger获取方式
+logger = logging.getLogger('dataprocess')
 
-def parse_response(response):
-    """
-    解析Modbus响应，此处为预设的解析流程
-    """
-    # 首先进行CRC校验
-    crc = calculate_crc(response[:-2])
-    if crc != response[-2:]:
-        logger.warning(f"CRC校验失败: {response.hex()}")
-        return None
+def load_config():
+    # 首先尝试读取外部配置文件
+    external_config = 'config.yaml'  # 与可执行文件同目录的配置文件
+    if os.path.exists(external_config):
+        with open(external_config, 'r', encoding='utf-8') as file:
+            return yaml.safe_load(file)
     
-    # 解析响应
-    if response[1] == 0x03:
-        mainOpen = (response[3] << 8) | response[4] == 0x0001
-        LightOpen = (response[5] << 8) | response[6] == 0x0001
-        fanRate = (response[7] << 8) | response[8]
-        temperature = (response[9] << 8) | response[10]
-        return mainOpen, LightOpen, fanRate, temperature
+    # 如果外部配置不存在，则使用打包的配置
+    if getattr(sys, 'frozen', False):
+        # 运行在打包环境
+        base_path = sys._MEIPASS
     else:
-        logger.warning(f"{response.hex()} 不支持的解析")
-        return None
+        # 运行在开发环境
+        base_path = os.path.dirname(__file__)
     
-def process_data_thread():
-    """创建线程处理数据"""
-    _process_thread = threading.Thread(target=process_data)
-    _process_thread.daemon = True
-    _process_thread.start()
+    config_path = os.path.join(base_path, 'config.yaml')
+    with open(config_path, 'r', encoding='utf-8') as file:
+        return yaml.safe_load(file)
 
-    logger.info("接收队列数据处理线程已启动")
+# 使用配置
+config = load_config()
 
-def process_data():
-    """处理数据"""
-    while True:
-        data = _receive_queue.dequeue() # 从队列中获取一个数据
-        if data:
-            response = parse_response(data)
-            logger.info(f"解析到的数据: {response}")
-        else:
-            time.sleep(0.5)
+retry_times = config['modbus']['retries']
 
-def process_data(number_of_items):
-    """处理指定个数的数据"""
-    processed_count = 0
-    total_response = None
+def return_data_num(port_name):
+    """返回指定串口的数据帧个数"""
+    handler = serial_manager.serial_ports.get(port_name)
+    if not handler:
+        logger.error(f"未找到串口 {port_name} 的处理器")
+        return 0
+    return handler.receive_queue.length()
+
+def send_data(port_name, slave_adress, function_code, start_address, quantity):
+    """向指定串口发送数据"""
+    port_logger = logging.getLogger(f"SerialPort_{port_name}")
     
-    while processed_count < number_of_items:
-        try:
-            data = _receive_queue.dequeue()  # 尝试从队列中获取数据，设置超时避免无限等待
-            if data:
-                response = parse_response(data)
-                logger.info(f"解析到的数据: {response}")
-                total_response += response
-                processed_count += 1  # 只有当成功处理了数据时才增加计数
-        except Empty:
-            # 如果在0.5秒内没有获取到数据，则继续循环尝试直到处理完指定数量的数据
-            if _receive_queue.empty() and processed_count >= _receive_queue.length():
-                logger.warning("数据帧全部取出")
-                break
-            continue
-    return total_response
-
-def return_data_num():
-    """返回数据帧个数"""
-    return _receive_queue.length()
-
-def send_data(slave_adress, function_code, start_address, quantity):
-    """发送数据"""
-    _send_queue.put((slave_adress, function_code, start_address, quantity))
-    logger.info(f"send_data: {slave_adress}, {function_code}, {start_address}, {quantity}")
+    handler = serial_manager.serial_ports.get(port_name)
+    if not handler:
+        port_logger.error(f"未找到串口 {port_name} 的处理器")
+        return False
+        
+    handler.send_queue.put((slave_adress, function_code, start_address, quantity))
+    port_logger.info(f"向串口 {port_name} 发送数据: {slave_adress}, {function_code}, {start_address}, {quantity}")
     return True
+
+def clear_receive_queue(port_name):
+    """清空指定串口的接收队列"""
+    handler = serial_manager.serial_ports.get(port_name)
+    if not handler:
+        logger.error(f"未找到串口 {port_name} 的处理器")
+        return False
+    handler.receive_queue.clear_queue()
+    logger.info(f"串口 {port_name} 的接收队列已清空")
+    return True
+
+
