@@ -95,15 +95,7 @@ class ConfigClientGUI(QMainWindow):
             
     def save_config(self):
         """保存配置文件"""
-        # 更新配置
-        # 服务器配置
-        self.config['server']['host'] = self.server_host.text()
-        self.config['server']['port'] = int(self.server_port.text())
-        
-        # 串口配置
-        self.config['default_serial_config']['port_name'] = self.serial_port.text()
-        self.config['default_serial_config']['baudrate'] = int(self.serial_baudrate.text())
-        self.config['default_serial_config']['timeout'] = float(self.serial_timeout.text())
+        # 串口时间配置
         self.config['serial']['send_time'] = float(self.serial_send_time.text())
         self.config['serial']['receive_time'] = float(self.serial_receive_time.text())
         self.config['serial']['send_error_time'] = float(self.serial_send_error_time.text())
@@ -124,39 +116,16 @@ class ConfigClientGUI(QMainWindow):
     def create_config_ui(self, layout):
         """创建配置界面"""
         
-        # 服务器配置组
-        server_group = QGroupBox("服务器配置")
-        server_layout = QVBoxLayout()
-        
-        self.server_host = QLineEdit(self.config['server']['host'])
-        self.server_port = QLineEdit(str(self.config['server']['port']))
-        
-        server_layout.addWidget(QLabel("服务器地址:"))
-        server_layout.addWidget(self.server_host)
-        server_layout.addWidget(QLabel("服务器端口:"))
-        server_layout.addWidget(self.server_port)
-        
-        server_group.setLayout(server_layout)
-        layout.addWidget(server_group)
-        
         # 串口配置组
         serial_group = QGroupBox("串口配置")
         serial_layout = QVBoxLayout()
         
-        self.serial_port = QLineEdit(self.config['default_serial_config']['port_name'])
-        self.serial_baudrate = QLineEdit(str(self.config['default_serial_config']['baudrate']))
-        self.serial_timeout = QLineEdit(str(self.config['default_serial_config']['timeout']))
+        # 删除 default_serial_config 相关控件，只保留时间配置
         self.serial_send_time = QLineEdit(str(self.config['serial']['send_time']))
         self.serial_receive_time = QLineEdit(str(self.config['serial']['receive_time']))
         self.serial_send_error_time = QLineEdit(str(self.config['serial']['send_error_time']))
         self.serial_receive_error_time = QLineEdit(str(self.config['serial']['receive_error_time']))
         
-        serial_layout.addWidget(QLabel("串口名称:"))
-        serial_layout.addWidget(self.serial_port)
-        serial_layout.addWidget(QLabel("波特率:"))
-        serial_layout.addWidget(self.serial_baudrate)
-        serial_layout.addWidget(QLabel("超时时间:"))
-        serial_layout.addWidget(self.serial_timeout)
         serial_layout.addWidget(QLabel("发送间隔时间:"))
         serial_layout.addWidget(self.serial_send_time)
         serial_layout.addWidget(QLabel("接收间隔时间:"))
@@ -218,7 +187,7 @@ class ConfigClientGUI(QMainWindow):
         action_layout = QHBoxLayout()
         
         self.action_combo = QComboBox()
-        self.action_combo.addItems(['send', 'receive', 'queue_size', 'status', 'files', 'clear_queue'])
+        self.action_combo.addItems(['send', 'receive', 'queue_size', 'status', 'clear_queue'])
         self.action_combo.currentTextChanged.connect(self.on_action_changed)
         
         action_layout.addWidget(QLabel("操作:"))
@@ -251,12 +220,12 @@ class ConfigClientGUI(QMainWindow):
         self.send_params = QWidget()
         send_layout = QVBoxLayout()
         self.data_inputs = []
-        labels = ["从机号", "功能码", "起始寄存器", "寄存器数量"]  # 定义新的标签名称
+        labels = ["从机号", "功能码", "起始寄存器", "寄存器数量"]
         for i in range(4):
             data_input = QSpinBox()
             data_input.setRange(0, 255)
             self.data_inputs.append(data_input)
-            send_layout.addWidget(QLabel(f"{labels[i]}:"))  # 使用新的标签名称
+            send_layout.addWidget(QLabel(f"{labels[i]}:"))
             send_layout.addWidget(data_input)
         self.send_params.setLayout(send_layout)
         
@@ -273,51 +242,6 @@ class ConfigClientGUI(QMainWindow):
         self.param_layout.addWidget(self.receive_params)
         self.param_group.setLayout(self.param_layout)
         layout.addWidget(self.param_group)
-
-        # 添加文件浏览参数
-        self.files_params = QWidget()
-        files_layout = QVBoxLayout()
-        
-        # 目录路径输入
-        dir_path_layout = QHBoxLayout()
-        self.dir_path_edit = QLineEdit()
-        self.dir_path_edit.setPlaceholderText("输入要浏览的目录路径")
-        self.browse_dir_btn = QPushButton("浏览")
-        self.browse_dir_btn.clicked.connect(self.browse_directory)
-        dir_path_layout.addWidget(self.dir_path_edit)
-        dir_path_layout.addWidget(self.browse_dir_btn)
-        
-        # 文件列表显示
-        self.files_list = QTextEdit()
-        self.files_list.setReadOnly(True)
-        
-        # 文件保存路径
-        save_path_layout = QHBoxLayout()
-        self.save_path_edit = QLineEdit()
-        self.save_path_edit.setPlaceholderText("选择文件保存路径")
-        self.browse_save_btn = QPushButton("选择保存路径")
-        self.browse_save_btn.clicked.connect(self.browse_save_path)
-        save_path_layout.addWidget(self.save_path_edit)
-        save_path_layout.addWidget(self.browse_save_btn)
-        
-        # 在文件参数组中添加下载按钮
-        self.download_btn = QPushButton("下载选中文件")
-        self.download_btn.clicked.connect(self.download_selected_file)
-        files_layout.addWidget(self.download_btn)
-        
-        # 添加文件选择列表
-        self.files_table = QTableWidget()
-        self.files_table.setColumnCount(4)
-        self.files_table.setHorizontalHeaderLabels(["文件名", "路径", "大小", "选择"])
-        self.files_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        files_layout.addWidget(self.files_table)
-        
-        files_layout.addLayout(dir_path_layout)
-        files_layout.addWidget(self.files_list)
-        files_layout.addLayout(save_path_layout)
-        
-        self.files_params.setLayout(files_layout)
-        self.param_layout.addWidget(self.files_params)
 
         # 响应显示
         response_group = QGroupBox("响应")
@@ -360,32 +284,6 @@ class ConfigClientGUI(QMainWindow):
         # 初始化显示
         self.on_action_changed('send')
     
-    def browse_directory(self):
-        """浏览目录"""
-        from PyQt5.QtWidgets import QFileDialog
-        
-        dir_path = QFileDialog.getExistingDirectory(
-            self,
-            "选择要浏览的目录",
-            ""
-        )
-        
-        if dir_path:
-            self.dir_path_edit.setText(dir_path)
-
-    def browse_save_path(self):
-        """选择保存路径"""
-        from PyQt5.QtWidgets import QFileDialog
-        
-        save_path = QFileDialog.getExistingDirectory(
-            self,
-            "选择文件保存路径",
-            ""
-        )
-        
-        if save_path:
-            self.save_path_edit.setText(save_path)
-
     def toggle_connection(self):
         """切换连接状态"""
         try:
@@ -440,7 +338,6 @@ class ConfigClientGUI(QMainWindow):
         """处理操作类型改变"""
         self.send_params.setVisible(action == 'send')
         self.receive_params.setVisible(action == 'receive')
-        self.files_params.setVisible(action == 'files')
         
     def parse_com5_frame(self, frame_hex):
         """解析COM5的Modbus帧"""
@@ -615,62 +512,6 @@ class ConfigClientGUI(QMainWindow):
             self.toggle_continuous_send()
             
         self.update_ui_state()   
-
-    def download_selected_file(self):
-        """下载选中的文件"""
-        # 获取选中的文件
-        selected_items = []
-        for row in range(self.files_table.rowCount()):
-            checkbox = self.files_table.cellWidget(row, 3)
-            if checkbox.isChecked():
-                file_path = self.files_table.item(row, 1).text()
-                selected_items.append(file_path)
-        
-        if not selected_items:
-            self.response_text.setText("请选择要下载的文件")
-            return
-        
-        save_path = self.save_path_edit.text()
-        if not save_path:
-            self.response_text.setText("请选择保存路径")
-            return
-        
-        # 下载选中的文件
-        for file_path in selected_items:
-            self.download_file(file_path, save_path)
-
-    def download_file(self, file_path, save_dir):
-        """下载指定文件"""
-        try:
-            # 构造下载请求
-            request = {
-                "action": "download_file",
-                "file_path": file_path
-            }
-            
-            # 发送请求
-            self.client_socket.send(json.dumps(request).encode('utf-8'))
-            
-            # 接收响应
-            response = self.client_socket.recv(4096)
-            response_data = json.loads(response.decode('utf-8'))
-            
-            if response_data["status"] == "success":
-                # 解析文件数据
-                filename = response_data["filename"]
-                file_data = bytes.fromhex(response_data["file_data"])
-                
-                # 保存文件
-                save_path = os.path.join(save_dir, filename)
-                with open(save_path, 'wb') as f:
-                    f.write(file_data)
-                    
-                self.response_text.setText(f"文件下载成功: {save_path}")
-            else:
-                self.response_text.setText(f"下载失败: {response_data.get('message', '未知错误')}")
-                
-        except Exception as e:
-            self.response_text.setText(f"下载错误: {str(e)}")
 
 def main():
     app = QApplication(sys.argv)

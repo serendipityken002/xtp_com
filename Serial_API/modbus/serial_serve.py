@@ -30,15 +30,6 @@ def load_config():
         return yaml.safe_load(file)
 
 config = load_config()
-
-# # 加载配置文件
-# config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
-# with open(config_path, 'r', encoding='utf-8') as file:
-#     config = yaml.safe_load(file)
-
-port_default = config['default_serial_config']['port_name']
-baudrate_default = config['default_serial_config']['baudrate']
-timeout_default = config['default_serial_config']['timeout']
 max_length = config['tcp_server']['buffer_size']
 
 # 配置日志

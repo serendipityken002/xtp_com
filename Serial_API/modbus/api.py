@@ -344,61 +344,6 @@ def handle_client(client_socket, client_address):
                         "ports": ports_status
                     }
 
-                elif request.get('action') == 'files':
-                    try:
-                        dir_path = request.get('dir_path', '')  # 获取目录路径，默认为空（当前目录）
-                        
-                        # 检查目录是否存在
-                        if not os.path.exists(dir_path):
-                            response = {"status": "error", "message": f"目录不存在: {dir_path}"}
-                        else:
-                            # 获取目录下所有文件
-                            files = []
-                            for root, dirs, filenames in os.walk(dir_path):
-                                for filename in filenames:
-                                    file_path = os.path.join(root, filename)
-                                    # 获取文件信息
-                                    file_info = {
-                                        "name": filename,
-                                        "path": file_path,
-                                        "size": os.path.getsize(file_path),
-                                        "modified_time": os.path.getmtime(file_path)
-                                    }
-                                    files.append(file_info)
-                            
-                            response = {
-                                "status": "success",
-                                "files": files,
-                                "dir_path": dir_path
-                            }
-                        
-
-                    except Exception as e:
-                        _logger.error(f"获取文件列表时出错: {str(e)}")
-                        response = {"status": "error", "message": f"获取文件列表失败: {str(e)}"}
-                
-                elif request.get('action') == 'download_file':
-                    try:
-                        file_path = request.get('file_path')
-                        if not file_path or not os.path.exists(file_path):
-                            response = {"status": "error", "message": f"文件不存在: {file_path}"}
-                        else:
-                            # 读取文件
-                            with open(file_path, 'rb') as f:
-                                file_data = f.read()
-                            
-                            # 构造响应
-                            response = {
-                                "status": "success",
-                                "filename": os.path.basename(file_path),
-                                "file_size": len(file_data),
-                                "file_data": file_data.hex()  # 将二进制数据转换为十六进制字符串
-                            }
-                            
-                    except Exception as e:
-                        _logger.error(f"读取文件时出错: {str(e)}")
-                        response = {"status": "error", "message": f"读取文件失败: {str(e)}"}
-
                 else:
                     response = {"status": "error", "message": f"未知的action参数: {request.get('action')}"}
                     
