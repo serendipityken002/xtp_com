@@ -9,6 +9,7 @@ import sys
 import os
 import socket
 import json
+import serial.tools.list_ports
 
 class ConfigClientGUI(QMainWindow):
     def __init__(self):
@@ -201,10 +202,52 @@ class ConfigClientGUI(QMainWindow):
         port_layout = QHBoxLayout()
         
         self.port_combo = QComboBox()
-        # 从配置文件中获取所有串口
+        # 从配置文件中获取所有串口并进行实际串口匹配
         serial_ports = self.config.get('serial_ports', [])
-        port_names = [port['name'] for port in serial_ports]
-        self.port_combo.addItems(port_names)
+        available_ports = list(serial.tools.list_ports.comports())
+        
+        # 为每个配置的串口找到实际的串口信息
+        port_info = []
+        for port_config in serial_ports:
+            config_name = port_config['name']
+            config_desc = port_config.get('description', '')
+            
+            # 尝试找到实际的串口
+            found_port = None
+            # 首先通过描述匹配
+            if config_desc:
+                for port in available_ports:
+                    if config_desc.upper() in port.description.upper():
+                        found_port = port
+                        break
+            
+            # 如果通过描述没找到，使用配置的名称
+            if not found_port:
+                for port in available_ports:
+                    if port.device == config_name:
+                        found_port = port
+                        break
+            
+            if found_port:
+                # 使用实际找到的串口信息
+                display_text = f"{found_port.device} ({config_desc} - {found_port.description})"
+                port_info.append({
+                    'display': display_text,
+                    'name': found_port.device,
+                    'description': found_port.description
+                })
+            else:
+                # 使用配置的默认值
+                display_text = f"{config_name} ({config_desc} - 未找到实际设备)"
+                port_info.append({
+                    'display': display_text,
+                    'name': config_name,
+                    'description': config_desc
+                })
+        
+        # 添加到下拉框
+        for port in port_info:
+            self.port_combo.addItem(port['display'], port['name'])
         
         port_layout.addWidget(QLabel("选择串口:"))
         port_layout.addWidget(self.port_combo)
@@ -464,6 +507,10 @@ class ConfigClientGUI(QMainWindow):
             # 其他action直接显示响应
             self.response_text.setText(json.dumps(response_data, indent=2, ensure_ascii=False))
 
+    def get_selected_port(self):
+        """获取当前选中的串口名称"""
+        return self.port_combo.currentData()  # 返回实际的串口名称而不是显示文本
+
     def send_client_request(self):
         """发送客户端请求"""
         if not self.is_connected:
@@ -471,7 +518,7 @@ class ConfigClientGUI(QMainWindow):
             return
 
         action = self.action_combo.currentText()
-        selected_port = self.port_combo.currentText()
+        selected_port = self.get_selected_port()  # 使用新方法获取实际的串口名称
 
         try:
             # 根据不同action构造请求

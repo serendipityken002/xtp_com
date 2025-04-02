@@ -12,6 +12,7 @@ import os
 import threading
 import json
 import sys
+import serial.tools.list_ports
 
 app = Flask(__name__)
 CORS(app)
@@ -109,7 +110,7 @@ def setup_logging():
     """设置日志配置"""
     LOGGING_CONFIG = {
         'version': 1,
-        'disable_existing_loggers': True,  # 修改为True，防止日志传播
+        'disable_existing_loggers': True,  # 确保清除之前的配置
         'formatters': {
             'standard': {
                 'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -131,6 +132,10 @@ def setup_logging():
             },
         }
     }
+
+    # 移除可能已存在的处理器
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
 
     # 添加主程序的日志处理器
     LOGGING_CONFIG['handlers'].update({
@@ -220,10 +225,65 @@ max_connections = config['tcp_server']['max_connections']
 buffer_size = config['tcp_server']['buffer_size']
 max_bytes_per_request = config['tcp_server']['max_bytes_per_request']
 
+def find_serial_ports(config_ports):
+    """
+    根据配置的串口信息查找实际的串口
+    
+    Args:
+        config_ports: 配置文件中的串口列表，每个元素包含 name, description, baudrate
+        
+    Returns:
+        list: 更新后的串口配置列表
+    """
+    logger = logging.getLogger(__name__)
+    available_ports = list(serial.tools.list_ports.comports())
+    updated_ports = []
+    
+    # 记录所有可用的串口信息
+    logger.info("系统可用串口:")
+    for port in available_ports:
+        logger.info(f"端口: {port.device}, 描述: {port.description}")
+    
+    for port_config in config_ports:
+        config_name = port_config['name']      # 配置的串口名 (如 COM5)
+        config_desc = port_config.get('description', '')  # 配置的描述 (如 'A')
+        
+        # 首先尝试通过描述匹配
+        found_port = None
+        if config_desc:
+            for port in available_ports:
+                if config_desc.upper() in port.description.upper():
+                    found_port = port
+                    break
+        
+        # 如果通过描述没找到，使用配置的名称
+        if not found_port:
+            for port in available_ports:
+                if port.device == config_name:
+                    found_port = port
+                    break
+        
+        if found_port:
+            # 更新配置中的串口名称为实际找到的串口
+            new_config = port_config.copy()
+            new_config['name'] = found_port.device
+            new_config['actual_description'] = found_port.description
+            updated_ports.append(new_config)
+            logger.info(f"串口匹配成功 - 配置: {config_name}({config_desc}) -> 实际: {found_port.device}({found_port.description})")
+        else:
+            # 如果没找到，保持原配置不变，但添加警告日志
+            updated_ports.append(port_config)
+            logger.warning(f"未找到匹配的串口 - 使用默认配置: {config_name}({config_desc})")
+    
+    return updated_ports
+
 def handle_client(client_socket, client_address):
     """处理客户端连接"""
     global _logger, _is_running
     _logger.info(f"客户端已连接: {client_address}")
+    
+    # 添加缓冲区
+    buffer = b''
     
     try:
         client_socket.settimeout(5.0)
@@ -235,122 +295,178 @@ def handle_client(client_socket, client_address):
                 if not data:
                     _logger.info(f"客户端断开连接: {client_address}")
                     break
-                    
-                # 限制接收数据的字节数
-                if len(data) > max_bytes_per_request:
-                    response = {"status": "error", "message": f"接收数据超过最大限制: {max_bytes_per_request} 字节"}
-                    client_socket.send(json.dumps(response).encode('utf-8'))
-                    continue
                 
-                # 解析JSON请求
-                try:
-                    request = json.loads(data.decode('utf-8'))
-                    _logger.debug(f"收到请求: {request}")
-                except json.JSONDecodeError:
-                    response = {"status": "error", "message": "无效的JSON格式"}
-                    client_socket.send(json.dumps(response).encode('utf-8')) 
-                    _logger.error("无效的JSON格式")
-                    continue
+                # 将新数据添加到缓冲区
+                buffer += data
                 
-                # 处理请求
-                if request.get('action') == 'send':
-                    # 发送数据
-                    data_to_send = request.get('data')
-                    port_name = request.get('port')  # 获取串口名称
-
-                    if not data_to_send:
-                        response = {"status": "error", "message": "缺少data参数"}
-                    elif not port_name:
-                        response = {"status": "error", "message": "缺少port参数"}
-                    else:
-                        slave_adress = data_to_send[0]
-                        function_code = data_to_send[1]
-                        start_address = data_to_send[2]
-                        quantity = data_to_send[3]
-                        success = send_data(port_name, slave_adress, function_code, start_address, quantity)
-                        if success:
-                            response = {"status": "success", "message": f"成功发送数据到串口 {port_name}: {data_to_send}"}
-                        else:
-                            response = {"status": "error", "message": f"发送数据到串口 {port_name} 失败: {data_to_send}"}
-                            
-                elif request.get('action') == 'receive':
-                    # 接收数据
-                    num = request.get('num')
-                    port_name = request.get('port')
+                # 尝试从缓冲区提取完整的JSON消息
+                while True:
+                    # 查找第一个左花括号位置
+                    start = buffer.find(b'{')
+                    if start == -1:
+                        # 没有找到开始标记，清空缓冲区
+                        buffer = b''
+                        break
                     
-                    if not num:
-                        response = {"status": "error", "message": "缺少num参数"}
-                    elif not port_name:
-                        response = {"status": "error", "message": "缺少port参数"}
-                    else:
-                        handler = serial_manager.serial_ports.get(port_name)
-                        if not handler:
-                            response = {"status": "error", "message": f"未找到串口 {port_name} 的处理器"}
-                        else:
-                            try:
-                                port_logger = logging.getLogger(f"SerialPort_{port_name}")
-                                frames = get_complete_frames(handler.receive_queue, port_logger, num)
+                    # 尝试从这个位置解析一个完整的JSON
+                    try:
+                        # 使用python的json模块尝试加载部分buffer
+                        # 通过计算嵌套括号来找到正确的JSON结束位置
+                        brace_count = 0
+                        end_pos = start
+                        
+                        for i in range(start, len(buffer)):
+                            if buffer[i] == ord('{'):
+                                brace_count += 1
+                            elif buffer[i] == ord('}'):
+                                brace_count -= 1
                                 
-                                if frames:
-                                    response = {
-                                        "status": "success",
-                                        "frames": frames,
-                                        "port": port_name
-                                    }
+                            if brace_count == 0:
+                                end_pos = i + 1
+                                break
+                        
+                        if brace_count != 0:
+                            # JSON不完整，等待更多数据
+                            break
+                            
+                        # 提取完整的JSON
+                        json_data = buffer[start:end_pos]
+                        
+                        # 限制接收数据的字节数
+                        if len(json_data) > max_bytes_per_request:
+                            response = {"status": "error", "message": f"接收数据超过最大限制: {max_bytes_per_request} 字节"}
+                            client_socket.send(json.dumps(response).encode('utf-8'))
+                            # 从缓冲区移除这部分数据
+                            buffer = buffer[end_pos:]
+                            continue
+                        
+                        # 解析JSON
+                        request = json.loads(json_data.decode('utf-8'))
+                        _logger.debug(f"收到请求: {request}")
+                        
+                        # 从缓冲区移除已处理的数据
+                        buffer = buffer[end_pos:]
+                        
+                        # 处理请求
+                        if request.get('action') == 'send':
+                            # 发送数据
+                            data_to_send = request.get('data')
+                            port_name = request.get('port')  # 获取串口名称
+
+                            if not data_to_send:
+                                response = {"status": "error", "message": "缺少data参数"}
+                            elif not port_name:
+                                response = {"status": "error", "message": "缺少port参数"}
+                            else:
+                                slave_adress = data_to_send[0]
+                                function_code = data_to_send[1]
+                                start_address = data_to_send[2]
+                                quantity = data_to_send[3]
+                                success = send_data(port_name, slave_adress, function_code, start_address, quantity)
+                                if success:
+                                    response = {"status": "success", "message": f"成功发送数据到串口 {port_name}: {data_to_send}"}
                                 else:
-                                    response = {
-                                        "status": "success",
-                                        "frames": [],
-                                        "port": port_name
-                                    }
-                                    
-                            except Exception as e:
-                                _logger.error(f"读取数据帧时出错: {str(e)}")
-                                response = {"status": "error", "message": str(e)}
+                                    response = {"status": "error", "message": f"发送数据到串口 {port_name} 失败: {data_to_send}"}
+                            
+                        elif request.get('action') == 'receive':
+                            # 接收数据
+                            num = request.get('num')
+                            port_name = request.get('port')
+                            
+                            if not num:
+                                response = {"status": "error", "message": "缺少num参数"}
+                            elif not port_name:
+                                response = {"status": "error", "message": "缺少port参数"}
+                            else:
+                                handler = serial_manager.serial_ports.get(port_name)
+                                if not handler:
+                                    response = {"status": "error", "message": f"未找到串口 {port_name} 的处理器"}
+                                else:
+                                    try:
+                                        port_logger = logging.getLogger(f"SerialPort_{port_name}")
+                                        frames = get_complete_frames(handler.receive_queue, port_logger, num)
+                                        
+                                        if frames:
+                                            response = {
+                                                "status": "success",
+                                                "frames": frames,
+                                                "port": port_name
+                                            }
+                                        else:
+                                            response = {
+                                                "status": "success",
+                                                "frames": [],
+                                                "port": port_name
+                                            }
+                                        
+                                    except Exception as e:
+                                        _logger.error(f"读取数据帧时出错: {str(e)}")
+                                        response = {"status": "error", "message": str(e)}
 
-                elif request.get('action') == 'queue_size':
-                    # 获取队列大小
-                    port_name = request.get('port')  # 获取串口名称
-                    
-                    if not port_name:
-                        response = {"status": "error", "message": "缺少port参数"}
-                    else:
-                        size = return_data_num(port_name)
-                        _logger.info(f"串口 {port_name} 当前剩余数据帧个数：{size}")
-                        response = {"status": "success", "size": size, "port": port_name}
-                    
-                elif request.get('action') == 'clear_queue':
-                    # 清空接收队列
-                    port_name = request.get('port')  # 获取串口名称
-                    
-                    if not port_name:
-                        response = {"status": "error", "message": "缺少port参数"}
-                    else:
-                        clear_receive_queue(port_name)
-                        response = {"status": "success", "message": f"串口 {port_name} 的接收队列已清空"}
+                        elif request.get('action') == 'queue_size':
+                            # 获取队列大小
+                            port_name = request.get('port')  # 获取串口名称
+                            
+                            if not port_name:
+                                response = {"status": "error", "message": "缺少port参数"}
+                            else:
+                                size = return_data_num(port_name)
+                                _logger.info(f"串口 {port_name} 当前剩余数据帧个数：{size}")
+                                response = {"status": "success", "size": size, "port": port_name}
+                            
+                        elif request.get('action') == 'clear_queue':
+                            # 清空接收队列
+                            port_name = request.get('port')  # 获取串口名称
+                            
+                            if not port_name:
+                                response = {"status": "error", "message": "缺少port参数"}
+                            else:
+                                clear_receive_queue(port_name)
+                                response = {"status": "success", "message": f"串口 {port_name} 的接收队列已清空"}
 
-                elif request.get('action') == 'status':
-                    # 获取所有串口状态
-                    ports_status = {}
-                    for port_name in serial_manager.serial_ports:
-                        handler = serial_manager.serial_ports[port_name]
-                        ports_status[port_name] = {
-                            "connected": handler.is_connected,
-                            "queue_size": handler.receive_queue.length()
-                        }
-                    response = {
-                        "status": "success", 
-                        "server_running": _is_running,
-                        "ports": ports_status
-                    }
+                        elif request.get('action') == 'status':
+                            # 获取所有串口状态
+                            ports_status = {}
+                            for port_name in serial_manager.serial_ports:
+                                handler = serial_manager.serial_ports[port_name]
+                                ports_status[port_name] = {
+                                    "connected": handler.is_connected,
+                                    "queue_size": handler.receive_queue.length()
+                                }
+                            response = {
+                                "status": "success", 
+                                "server_running": _is_running,
+                                "ports": ports_status
+                            }
 
-                else:
-                    response = {"status": "error", "message": f"未知的action参数: {request.get('action')}"}
-                    
-                # 发送响应
-                _logger.debug(f"发送响应: {response}")
-                client_socket.send(json.dumps(response).encode('utf-8'))
-
+                        else:
+                            response = {"status": "error", "message": f"未知的action参数: {request.get('action')}"}
+                            
+                        # 发送响应
+                        _logger.debug(f"发送响应: {response}")
+                        client_socket.send(json.dumps(response).encode('utf-8'))
+                        
+                    except json.JSONDecodeError:
+                        # 尝试找下一个可能的起始位置
+                        next_start = buffer.find(b'{', start + 1)
+                        if next_start == -1:
+                            # 没有更多可能的JSON开始，保留当前缓冲区等待更多数据
+                            break
+                        else:
+                            # 丢弃无效部分，从下一个可能的JSON开始位置继续
+                            buffer = buffer[next_start:]
+                    except Exception as e:
+                        _logger.error(f"处理请求时出错: {str(e)}")
+                        # 出错时，尝试继续处理下一个可能的JSON
+                        next_start = buffer.find(b'{', start + 1)
+                        if next_start == -1:
+                            # 没有更多可能的JSON开始，清空缓冲区
+                            buffer = b''
+                            break
+                        else:
+                            # 从下一个可能的JSON开始
+                            buffer = buffer[next_start:]
+                
             except socket.timeout:
                 # 接收超时，继续循环
                 continue
@@ -373,13 +489,22 @@ def handle_client(client_socket, client_address):
 
 def start_server():
     """启动TCP服务器"""
-    global _server_socket, _is_running, _logger
+    global _server_socket, _is_running, _logger, config
 
     # 启动多个串口服务
     serial_ports = config.get('serial_ports', [])
     if not serial_ports:
         _logger.error("未找到串口配置信息")
         return False
+
+    # 查找实际的串口
+    serial_ports = find_serial_ports(serial_ports)
+    
+    # 更新全局配置中的串口信息
+    config['serial_ports'] = serial_ports
+    
+    # 重新设置日志配置，确保使用更新后的串口名称
+    setup_logging()
 
     # 尝试启动所有配置的串口
     success_count = 0
@@ -408,51 +533,79 @@ def start_server():
 
     try:
         # 创建TCP套接字
-        _server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # 创建TCP套接字
-        _server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # 设置套接字选项，允许重用地址
-        _server_socket.bind((host, port)) # 绑定地址和端口
-        _server_socket.listen(max_connections) # 设置最大连接数
-
-        # 设置非阻塞模式
+        _server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        try:
+            _server_socket.bind((host, port))
+        except socket.error as e:
+            _logger.error(f"绑定地址 {host}:{port} 失败: {str(e)}")
+            _server_socket.close()
+            return False
+            
+        _server_socket.listen(max_connections)
         _server_socket.settimeout(1.0)
-
         _is_running = True
-
         _logger.info(f"TCP服务器已启动，监听 {host}:{port}")
 
         while _is_running:
             try:
-                # 接受客户端连接
                 client_socket, client_address = _server_socket.accept()
-                
-                # 创建新线程处理客户端请求
                 client_thread = threading.Thread(target=handle_client, args=(client_socket, client_address))
                 client_thread.daemon = True
                 client_thread.start()
-                time.sleep(1)
-
+                
             except socket.timeout:
-                # 接受连接超时，继续循环
                 continue
             except Exception as e:
                 if _is_running:
                     _logger.error(f"接受客户端连接时出错: {str(e)}")
-                break
+                    # 尝试重新创建socket并监听
+                    try:
+                        _server_socket.close()
+                        _server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        _server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        _server_socket.bind((host, port))
+                        _server_socket.listen(max_connections)
+                        _server_socket.settimeout(1.0)
+                        _logger.info("TCP服务器已重新启动")
+                    except Exception as e2:
+                        _logger.error(f"重启TCP服务器失败: {str(e2)}")
+                        _is_running = False
+                        break
 
     except Exception as e:
         _logger.error(f"启动TCP服务器时出错: {str(e)}")
+        if _server_socket:
+            try:
+                _server_socket.close()
+            except:
+                pass
         return False
-
+    finally:
+        if _server_socket:
+            try:
+                _server_socket.close()
+            except:
+                pass
+        _is_running = False
 
 if __name__ == '__main__':
     _logger.info("正在启动串口TCP服务器...")
     
-    if start_server():
-        try:
-            # 主线程保持运行
+    try:
+        if start_server():
             while _is_running:
                 time.sleep(1)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            _logger.info("串口TCP服务器已退出") 
+    except KeyboardInterrupt:
+        _logger.info("收到退出信号，正在关闭服务器...")
+    except Exception as e:
+        _logger.error(f"服务器运行时出错: {str(e)}")
+    finally:
+        _is_running = False
+        if _server_socket:
+            try:
+                _server_socket.close()
+            except:
+                pass
+        _logger.info("串口TCP服务器已退出") 
